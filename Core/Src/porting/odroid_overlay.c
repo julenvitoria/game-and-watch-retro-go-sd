@@ -1546,7 +1546,9 @@ int odroid_savestate_menu(const char *title, const char *rom_path, bool show_pre
     rg_emu_states_t *savestates = odroid_system_emu_get_states(rom_path ?: app->romPath, 4);
     
     if (skip_on_single_used_slot && savestates->used <= 1) {
-        int result = savestates->used == 1 ? 0 : -1;
+        int result = (savestates->used == 1 && savestates->lastused)
+                         ? savestates->lastused->id
+                         : -1;
         free(savestates);
         return result;
     }
