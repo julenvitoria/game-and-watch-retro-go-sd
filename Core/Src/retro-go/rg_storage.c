@@ -101,6 +101,30 @@ static int delete_cb(const rg_scandir_t *file, void *arg)
     return RG_SCANDIR_CONTINUE;
 }
 
+bool rg_storage_free_space(const char *path, uint64_t *free_bytes, uint64_t *total_bytes)
+{
+#if SD_CARD == 1
+    FATFS *fs;
+    DWORD free_clusters;
+    (void)path;   /* single volume */
+    if (f_getfree("", &free_clusters, &fs) != FR_OK)
+        return false;
+#if FF_MAX_SS != FF_MIN_SS
+    uint64_t cluster_bytes = (uint64_t)fs->csize * fs->ssize;
+#else
+    uint64_t cluster_bytes = (uint64_t)fs->csize * FF_MAX_SS;
+#endif
+    if (free_bytes)
+        *free_bytes = (uint64_t)free_clusters * cluster_bytes;
+    if (total_bytes)
+        *total_bytes = (uint64_t)(fs->n_fatent - 2) * cluster_bytes;
+    return true;
+#else
+    (void)path; (void)free_bytes; (void)total_bytes;
+    return false;
+#endif
+}
+
 /* newlib's rename() is _link()+_unlink(), and _link() is an always-fail stub in
  * this toolchain, so it can never work here — go straight at the backend. */
 bool rg_storage_rename(const char *old_path, const char *new_path)
