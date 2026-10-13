@@ -687,4 +687,6 @@ const gw_firmware_abi_t g_firmware_abi = {
         odroid_overlay_cache_file_in_flash_cancellable,
     .odroid_overlay_cache_file_in_flash_relocate_cancellable =
         odroid_overlay_cache_file_in_flash_relocate_cancellable,
+    .rg_storage_rename = rg_storage_rename,
+    .rg_storage_free_space = rg_storage_free_space,
 };
