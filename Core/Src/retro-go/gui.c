@@ -56,7 +56,12 @@ static listbox_item_t *global_items = NULL;
 
 #define NOCOVER_HEIGHT ((uint32_t)(68))
 #define NOCOVER_WIDTH ((uint32_t)(68))
-#define COVER_420_SIZE ((uint32_t)(COVER_MAX_HEIGHT * COVER_MAX_WIDTH * 3 / 2))
+/* The HW JPEG decoder writes whole MCUs (16x16 for 4:2:0), so the YCbCr
+ * scratch must hold the MCU-padded size: a 186x100 cover is decoded as
+ * 192x112. Sizing it to 186x100 rejected (or would overflow on) covers of
+ * exactly COVER_MAX_WIDTH x COVER_MAX_HEIGHT. */
+#define COVER_PAD16(x) ((((uint32_t)(x)) + 15u) & ~15u)
+#define COVER_420_SIZE ((uint32_t)(COVER_PAD16(COVER_MAX_WIDTH) * COVER_PAD16(COVER_MAX_HEIGHT) * 3 / 2))
 #define COVER_16BITS_SIZE ((uint32_t)(COVER_MAX_HEIGHT * COVER_MAX_WIDTH * 2))
 
 static uint8_t *pJPEG_Buffer = NULL;
@@ -989,7 +994,8 @@ static void initialize_cache()
 
 /* SOF scan only — do NOT call HAL JPEG here: DecodeGetSize still writes the
  * YCbCr scratch buffer, so an oversized JPEG would already smash RAM. */
-static bool jpeg_sof_dimensions(const uint8_t *data, size_t len, uint32_t *w, uint32_t *h)
+static bool jpeg_sof_info(const uint8_t *data, size_t len, uint32_t *w, uint32_t *h,
+                          uint32_t *ycbcr_size)
 {
     size_t i = 0;
     if (len < 4 || data[0] != 0xff || data[1] != 0xd8)
@@ -1015,9 +1021,36 @@ static bool jpeg_sof_dimensions(const uint8_t *data, size_t len, uint32_t *w, ui
         if (seglen < 2 || i + seglen > len)
             return false;
         if (marker >= 0xc0 && marker <= 0xc3) {
+            if (seglen < 8)
+                return false;
             *h = ((uint32_t)data[i + 3] << 8) | data[i + 4];
             *w = ((uint32_t)data[i + 5] << 8) | data[i + 6];
-            return *w > 0 && *h > 0;
+            if (*w == 0 || *h == 0)
+                return false;
+            /* Bytes the decoder writes to the YCbCr scratch: whole MCUs,
+             * whose size depends on the chroma subsampling of component 0. */
+            uint8_t ncomp = data[i + 7];
+            uint32_t mcu_w, mcu_h, num, den;
+            if (ncomp == 1) {
+                mcu_w = 8; mcu_h = 8; num = 1; den = 1;          /* grayscale */
+            } else if (ncomp == 3 && seglen >= 8 + 3 * 3) {
+                uint8_t hs = data[i + 9] >> 4, vs = data[i + 9] & 0x0f;
+                if (hs == 2 && vs == 2) {
+                    mcu_w = 16; mcu_h = 16; num = 3; den = 2;    /* 4:2:0 */
+                } else if (hs == 2 && vs == 1) {
+                    mcu_w = 16; mcu_h = 8; num = 2; den = 1;     /* 4:2:2 */
+                } else if (hs == 1 && vs == 1) {
+                    mcu_w = 8; mcu_h = 8; num = 3; den = 1;      /* 4:4:4 */
+                } else {
+                    return false;
+                }
+            } else {
+                return false;                                   /* CMYK etc. */
+            }
+            uint32_t pw = (*w + mcu_w - 1) / mcu_w * mcu_w;
+            uint32_t ph = (*h + mcu_h - 1) / mcu_h * mcu_h;
+            *ycbcr_size = pw * ph * num / den;
+            return true;
         }
         i += seglen;
     }
@@ -1026,16 +1059,15 @@ static bool jpeg_sof_dimensions(const uint8_t *data, size_t len, uint32_t *w, ui
 
 static bool jpeg_fits_cover_buffers(const uint8_t *data, size_t len)
 {
-    uint32_t w = 0, h = 0;
-    if (!jpeg_sof_dimensions(data, len, &w, &h) || w == 0 || h == 0)
+    uint32_t w = 0, h = 0, ycbcr = 0;
+    if (!jpeg_sof_info(data, len, &w, &h, &ycbcr))
         return false;
-    /* Accept any SOF that fits the YCbCr/RGB scratch — not the soft layout
-     * box (COVER_MAX 186x100). Pico-8 labels are often native 128x128: that
-     * exceeds MAX_H but is MCU-aligned and fits COVER_420 / COVER_16BITS
-     * (128²×3/2=24576 < 27900). Coverflow scales down to COVER_MAX when drawing. */
-    uint32_t pw = (w + 15u) & ~15u;
-    uint32_t ph = (h + 15u) & ~15u;
-    return (pw * ph * 3u / 2u) <= COVER_420_SIZE
+    /* Accept any SOF whose MCU-padded decode fits the YCbCr scratch and whose
+     * RGB565 output fits the cover buffer — not the soft layout box
+     * (COVER_MAX 186x100). Pico-8 labels are often native 128x128: that
+     * exceeds MAX_H but fits (128²×3/2=24576 <= 32256). Coverflow scales down
+     * to COVER_MAX when drawing. */
+    return ycbcr <= COVER_420_SIZE
         && (w * h * 2u) <= COVER_16BITS_SIZE;
 }
 
