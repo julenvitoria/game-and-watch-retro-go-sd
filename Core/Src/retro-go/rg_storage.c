@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include "main.h"
 #if SD_CARD == 1
 #include "ff.h"
@@ -132,8 +133,11 @@ bool rg_storage_rename(const char *old_path, const char *new_path)
     CHECK_PATH(old_path);
     CHECK_PATH(new_path);
 
-    /* Neither backend replaces an existing destination, so clear it first. */
-    remove(new_path);
+    /* Neither backend replaces an existing destination, so clear it first — unless the new name
+     * only changes case: FAT names ignore case, so "BOOT.IMG" -> "BOOT.img" would delete the
+     * file being renamed (and then the rename fails). FatFs' f_rename handles that case itself. */
+    if (strcasecmp(old_path, new_path) != 0)
+        remove(new_path);
 
 #if SD_CARD == 1
     return f_rename(old_path, new_path) == FR_OK;
