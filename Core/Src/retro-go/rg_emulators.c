@@ -518,6 +518,18 @@ static bool filename_is_cue(const char *name)
         && (ext[3] == '\0');
 }
 
+/* True if basename extension is listed in emu->exts (" nes gb ... "). */
+static bool filename_matches_emu_exts(const retro_emulator_t *emu, const char *name)
+{
+    char ext_buf[32];
+    const char *ext = rg_extension(name);
+
+    if (!emu || !ext || !ext[0])
+        return false;
+    snprintf(ext_buf, sizeof(ext_buf), " %s ", ext);
+    return strstr(emu->exts, rg_strtolower(ext_buf)) != NULL;
+}
+
 static bool emulator_add_rom_file(retro_emulator_t *emu, const char *path,
                                   const char *basename, uint32_t size)
 {
@@ -663,10 +675,14 @@ static bool cdrom_collapse_game_dir(retro_emulator_t *emu, const char *path)
     return found;
 }
 
-/* Scan one CD-ROM browse folder (GNW_PARSE_CDROM systems, e.g. PC Engine CD)
- * without nesting FatFs DIR handles. Parent directory is scanned once, child
- * names are collected, then children are processed after parent close
- * (FatFs LFN safety). */
+/* Scan one CD-ROM browse folder (GNW_PARSE_CDROM systems, e.g. PC Engine CD
+ * or a core that also takes .chd): without nesting FatFs DIR handles. Parent
+ * is scanned once; child names are collected, then children are processed
+ * after parent close (FatFs LFN safety).
+ *
+ * Pass 1 lists .cue files and any other file whose extension is in
+ * emu->exts (compressed / single-file disc images). Pass 2 still collapses
+ * subdirs that contain a .cue into one browser row. */
 static void emulator_scan_cdrom_folder(retro_emulator_t *emu, const char *folder)
 {
     DIR dir;
@@ -677,7 +693,7 @@ static void emulator_scan_cdrom_folder(retro_emulator_t *emu, const char *folder
     int subdir_count = 0;
     int subdir_cap = 0;
 
-    /* Pass 1: process .cue files at this level and collect child directories. */
+    /* Pass 1: loose games at this level + collect child directories. */
     if (f_opendir(&dir, folder) == FR_OK)
     {
         while (emu->roms.count < emu->roms.maxcount)
@@ -705,7 +721,8 @@ static void emulator_scan_cdrom_folder(retro_emulator_t *emu, const char *folder
                 subdirs[subdir_count++] = name_copy;
                 continue;
             }
-            if (!filename_is_cue(fno.fname))
+            /* Always keep .cue; also keep emu->exts matches (.chd, .iso, …). */
+            if (!filename_is_cue(fno.fname) && !filename_matches_emu_exts(emu, fno.fname))
                 continue;
             if (folder_len + 1 + strlen(fno.fname) >= sizeof(fullpath))
                 continue;
@@ -766,21 +783,13 @@ static int scan_folder_cb(const rg_scandir_t *entry, void *arg)
 {
     retro_emulator_t *emu = (retro_emulator_t *)arg;
     uint8_t is_valid = false;
-    char ext_buf[32];
     const bool is_homebrew = emu->dirname[0] && strcmp(emu->dirname, "homebrew") == 0;
 
     if (entry->basename[0] == '.')
         return RG_SCANDIR_SKIP;
 
     if (entry->is_file)
-    {
-        const char *ext = rg_extension(entry->basename);
-        if (ext && ext[0])
-        {
-            snprintf(ext_buf, sizeof(ext_buf), " %s ", ext);
-            is_valid = strstr(emu->exts, rg_strtolower(ext_buf)) != NULL;
-        }
-    }
+        is_valid = filename_matches_emu_exts(emu, entry->basename);
     else if (entry->is_dir)
     {
         /* Homebrew: hide folders that only hold data / non-GWHB files. */
