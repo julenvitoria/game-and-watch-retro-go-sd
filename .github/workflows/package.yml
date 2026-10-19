@@ -6,11 +6,13 @@ on:
   push:
     branches:
       - main
+      - external_cores
     tags:
       - 'v*'
   pull_request:
     branches:
       - main
+      - external_cores
 
 jobs:
   build-test:
