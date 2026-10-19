@@ -1,6 +1,7 @@
 name: Generate gw_update.tar
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
