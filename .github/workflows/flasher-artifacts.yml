@@ -34,9 +34,9 @@ on:
     # deploy. Publishing from "whichever commit last touched Core/" would mint
     # releases nobody asked for and race the mirror against itself.
     tags: ['v*']
-    branches: [main, web-builder, web-builder-flash]
+    branches: [main, external_cores, web-builder, web-builder-flash]
   pull_request:
-    branches: [main, web-builder, web-builder-flash]
+    branches: [main, external_cores, web-builder, web-builder-flash]
     # No paths filter. It would apply to the tag push as well, and a tag pointing
     # at a commit that is already on the remote arrives as a push event with no
     # commits — nothing for a path filter to match, so the release would silently
