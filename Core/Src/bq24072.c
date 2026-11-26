@@ -369,6 +369,13 @@ static bool bq24072_convert_async(uint16_t *out, uint32_t now)
  *   else filtered = raw
  *   value = result; allow_rise = 0; level = map(result)
  */
+/*
+ * Set while the latched level predates a STOP2 sleep: TIM1 is stopped in
+ * STOP2, so the pack may have been charged (or drained) since the last
+ * latch. Cleared by the next latch.
+ */
+static bool bq24072_latch_stale;
+
 static void bq24072_sample_filter_latch(uint16_t raw)
 {
 #if BQ24072_PROFILING == 1
@@ -389,6 +396,7 @@ static void bq24072_sample_filter_latch(uint16_t raw)
     bq24072_data.level = bq24072_adc_to_level(raw);
     bq24072_data.live_level = bq24072_data.level;
     bq24072_data.have_sample = true;
+    bq24072_latch_stale = false;
     bq24072_data.last.percent = bq24072_level_to_percent(bq24072_data.level);
     bq24072_data.last.state = bq24072_get_state();
     bq24072_remember_first(bq24072_data.value, bq24072_data.level);
@@ -602,6 +610,7 @@ void bq24072_wake_prepare(void)
     bq24072_data.allow_rise = true;
     bq24072_data.have_first = false;
     bq24072_data.peek_count = 0;
+    bq24072_latch_stale = bq24072_data.have_sample;
     bq24072_clear_low_debounce("wake");
     /* ADC2 after STOP2: set up again before the next poll conversion */
     bq24072_async_pending = false;
@@ -738,6 +747,24 @@ bool bq24072_battery_too_low_for_sd(void)
         return true;
     }
 
+    /*
+     * On wake from STOP2 this runs (via sdcard_init) before
+     * bq24072_wake_resample, so the latch still holds the pre-sleep level.
+     * If the pack was charged while asleep and unplugged before waking, that
+     * stale low level would power the device off with a full battery. Take a
+     * fresh sample first; wake_prepare already allowed it to rise.
+     */
+    if (bq24072_latch_stale) {
+        if (bq24072_fuel_update()) {
+            uint32_t now = HAL_GetTick();
+
+            bq24072_last_info_ms = now ? now : 1;
+            bq24072_log_reading("sd_check wake");
+        } else {
+            printf("bq24072: sd_check wake ADC convert failed — using stale latch\n");
+        }
+    }
+
     bq24072_log_sample("sd_check", bq24072_data.value, bq24072_data.level);
     return bq24072_data.level < BQ24072_RUNTIME_LOW_LEVEL;
 }
@@ -854,6 +881,14 @@ void bq24072_poll(void)
     bq24072_last_info_ms = now;
     if (force_unplug_latch) {
         unplug_at_ms = 0;
+        /*
+         * Accept this sample whether it is lower or higher than the latch.
+         * If no charge latch was taken while USB was in (charged during
+         * STOP2, or the pack was already full so /CHG never asserted), the
+         * latch still holds the pre-charge level and anti-rise would pin the
+         * HUD there — low-battery warning and power-off on a full pack.
+         */
+        bq24072_data.allow_rise = true;
     }
     bq24072_handle_charging();
     bq24072_sample_filter_latch(sample);
