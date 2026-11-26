@@ -504,14 +504,23 @@ void bq24072_interrupts_enable(void)
 {
     GPIO_InitTypeDef GPIO_InitStruct = {0};
 
+    /*
+     * /PG and /CHG are open-drain outputs of the BQ24072. With no pull they
+     * can float when nothing drives them: with USB out, /CHG was seen
+     * reading low now and then, giving the "battery missing" state (empty
+     * HUD icon) and mapping latches with the charge tables (lower level,
+     * then pinned by anti-rise). The weak internal pull-ups keep both
+     * defined and are harmless next to an external one. They are released
+     * in STOP2 (bq24072_interrupts_disable de-inits both pins).
+     */
     GPIO_InitStruct.Pin = GPIO_CHARGER_POWERGOOD_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
     HAL_GPIO_Init(GPIO_CHARGER_POWERGOOD_GPIO_Port, &GPIO_InitStruct);
 
     GPIO_InitStruct.Pin = GPIO_CHARGER_CHARGING_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
     HAL_GPIO_Init(GPIO_CHARGER_CHARGING_GPIO_Port, &GPIO_InitStruct);
 
     HAL_NVIC_SetPriority(GPIO_CHARGER_POWERGOOD_EXTI_IRQn, 0, 0);
