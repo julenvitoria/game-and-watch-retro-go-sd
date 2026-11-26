@@ -331,7 +331,17 @@ void odroid_overlay_draw_battery(odroid_battery_state_t battery, int x_pos, int 
     odroid_battery_charge_state_t battery_state = battery.state;
     uint16_t color_empty = curr_colors->main_c;
     int bars = mario_battery_bar_count(level);
-    uint16_t bar_color = (bars == 1) ? MARIO_BATT_CRITICAL : MARIO_BATT_GREEN;
+    /* In LUT8 (palette) mode the fixed bar colours are not in the overlay
+     * CLUT, so lcd_pack_color() nearest-matches them; with a green theme
+     * the green lands on the header colour and the bars vanish (empty
+     * icon in the "Caching game file" screen and pause menu of LUT8 cores
+     * such as ScummVM and NXEngine). Use colours the overlay always
+     * carries there: white like the outline, theme highlight for the last
+     * bar. */
+    bool lut8 = lcd_get_mode() == LCD_MODE_LUT8;
+    uint16_t green = lut8 ? C_WHITE : MARIO_BATT_GREEN;
+    uint16_t critical = lut8 ? curr_colors->sel_c : MARIO_BATT_CRITICAL;
+    uint16_t bar_color = (bars == 1) ? critical : green;
     const unsigned char IMG_C_OUT[] = {
         // width8, height:10
         0x0e, //  ____###_
@@ -369,7 +379,7 @@ void odroid_overlay_draw_battery(odroid_battery_state_t battery, int x_pos, int 
         draw_mario_battery_bars(x_pos, y_pos, bars, bar_color);
         break;
     case ODROID_BATTERY_CHARGE_STATE_FULL:
-        draw_mario_battery_bars(x_pos, y_pos, 4, MARIO_BATT_GREEN);
+        draw_mario_battery_bars(x_pos, y_pos, 4, green);
         break;
     case ODROID_BATTERY_CHARGE_STATE_CHARGING:
         /* Stock: keep bar colour from level tile (1 bar stays red). */
