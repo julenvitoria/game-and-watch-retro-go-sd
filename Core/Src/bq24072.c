@@ -128,11 +128,22 @@ static uint8_t bq24072_detect_board_rev(void)
     return (pin == GPIO_PIN_SET) ? 0 : 1;
 }
 
+/* See bq24072_get_state(). */
+static volatile bool bq24072_unplug_pending;
+static bq24072_state_t bq24072_plugged_state = BQ24072_STATE_FULL;
+
 void bq24072_handle_power_good(void)
 {
+    bool was_pgood = bq24072_data.power_good;
+
     /* PA2 low ⇒ /PG asserted ⇒ USB present (stock sub_800646e rev1). */
     bq24072_data.power_good = !(HAL_GPIO_ReadPin(bq_pins[BQ24072_PIN_PGOOD].bank,
                                                  bq_pins[BQ24072_PIN_PGOOD].pin) == GPIO_PIN_SET);
+    /* Set here (EXTI) and not only in the poll: otherwise the HUD shows the
+     * stale level from the edge until the next poll tick. */
+    if (was_pgood && !bq24072_data.power_good) {
+        bq24072_unplug_pending = true;
+    }
 }
 
 void bq24072_handle_charging(void)
@@ -542,9 +553,6 @@ void bq24072_interrupts_disable(void)
  * shown while plugged until the fresh sample is in, so the HUD does not
  * flash a stale low level (and the low-battery debounce is not armed by it).
  */
-static bool bq24072_unplug_pending;
-static bq24072_state_t bq24072_plugged_state = BQ24072_STATE_FULL;
-
 bq24072_state_t bq24072_get_state(void)
 {
     if (bq24072_unplug_pending && !bq24072_data.power_good) {
