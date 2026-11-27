@@ -536,8 +536,20 @@ void bq24072_interrupts_disable(void)
     HAL_GPIO_DeInit(GPIO_CHARGER_CHARGING_GPIO_Port, GPIO_CHARGER_CHARGING_Pin);
 }
 
+/*
+ * Between USB removal and the forced re-latch (BQ24072_UNPLUG_SETTLE_MS) the
+ * latched level may still be the pre-charge one. Keep reporting the state
+ * shown while plugged until the fresh sample is in, so the HUD does not
+ * flash a stale low level (and the low-battery debounce is not armed by it).
+ */
+static bool bq24072_unplug_pending;
+static bq24072_state_t bq24072_plugged_state = BQ24072_STATE_FULL;
+
 bq24072_state_t bq24072_get_state(void)
 {
+    if (bq24072_unplug_pending && !bq24072_data.power_good) {
+        return bq24072_plugged_state;
+    }
     if (bq24072_data.power_good) {
         if (bq24072_data.charging) {
             return BQ24072_STATE_CHARGING;
@@ -834,12 +846,16 @@ void bq24072_poll(void)
          */
         bq24072_data.allow_rise = false;
         unplug_at_ms = now;
+        bq24072_unplug_pending = true;
         printf("bq24072: PGOOD deassert — discharge re-latch in %ums\n",
                (unsigned)BQ24072_UNPLUG_SETTLE_MS);
     }
     was_pgood = bq24072_data.power_good;
 
     if (bq24072_data.power_good) {
+        bq24072_unplug_pending = false;
+        bq24072_plugged_state = bq24072_data.charging ? BQ24072_STATE_CHARGING
+                                                      : BQ24072_STATE_FULL;
         if (!bq24072_data.charging) {
             /* USB in, charge complete — hold HUD (stock-ish idle-on-adapter). */
             return;
@@ -892,6 +908,9 @@ void bq24072_poll(void)
     }
     bq24072_handle_charging();
     bq24072_sample_filter_latch(sample);
+    if (force_unplug_latch) {
+        bq24072_unplug_pending = false;
+    }
     if (bq24072_data.peek_count < 0xffff) {
         bq24072_data.peek_count++;
     }
