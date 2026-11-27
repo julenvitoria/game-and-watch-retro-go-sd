@@ -184,6 +184,12 @@ int lcd_overlay_clut_end_will_restore(void);
  * Use after pause exit (buffers already cleared). */
 void lcd_overlay_clut_end_all(void);
 
+/* For chrome drawn outside a begin()/end() pair (progress bars a core asks
+ * for while its 256-colour CLUT is loaded): stamp the overlay colours now and
+ * keep them until the frame after this one is swapped in, or until the core
+ * loads a CLUT. Safe to call on every redraw. No-op outside LUT8. */
+void lcd_overlay_clut_hold(void);
+
 /* Sum of R+G+B for a CLUT index (0..765). Overlay / out-of-range → 0.
  * Used by the in-game HUD to treat near-black game pixels like letterbox
  * (stamp solid gray — darken alone stays invisible on black). */

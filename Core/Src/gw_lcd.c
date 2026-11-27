@@ -245,6 +245,11 @@ uint32_t lcd_get_pixel_position()
 
 void lcd_swap(void)
 {
+  /* Release a lcd_overlay_clut_hold() once its chrome is no longer the frame
+   * being shown: the cart CLUT is restored together with this swap. */
+  if (overlay_clut_hold_swaps != 0 && --overlay_clut_hold_swaps == 0)
+    lcd_overlay_clut_end();
+
   /* Program the just-drawn buffer into the shadow CFBAR, then reload at
    * vblank. An IMR reload here would apply a few lines into the next
    * frame (horizontal bar at the top of the panel); VBR applies at the
@@ -502,6 +507,7 @@ static uint32_t overlay_clut_saved[LCD_OVERLAY_CLUT_MAX];
 static uint32_t cart_clut_under_overlay[LCD_OVERLAY_CLUT_MAX];
 static uint8_t  overlay_clut_live = 0;     /* 1 if overlay colours are in active_clut */
 static uint8_t  overlay_clut_depth = 0;    /* nested begin()/end() for pause dialogs */
+static uint8_t  overlay_clut_hold_swaps = 0; /* lcd_overlay_clut_hold(): swaps left before release */
 /* O(1) darken for lcd_darken_index / HUD (rebuilt on set_clut). */
 static uint8_t  clut_darken_map[LCD_CLUT_HW_MAX];
 static uint8_t  clut_darken_map_valid = 0;
@@ -685,6 +691,7 @@ void lcd_set_clut(const uint32_t *clut, uint16_t count)
   active_clut_count = count;
   overlay_clut_live = 0;
   overlay_clut_depth = 0;
+  overlay_clut_hold_swaps = 0;
 
   /* Cache cart colours under the overlay window for begin()/end(). */
   clut_cache_cart_under_overlay();
@@ -875,10 +882,21 @@ int lcd_overlay_clut_end(void)
   return 1;
 }
 
+void lcd_overlay_clut_hold(void)
+{
+  if (current_lcd_mode != LCD_MODE_LUT8 || overlay_clut_count == 0)
+    return;
+  if (overlay_clut_hold_swaps == 0)
+    lcd_overlay_clut_begin();
+  /* Survive the swap that shows this chrome; released by the one after. */
+  overlay_clut_hold_swaps = 2;
+}
+
 void lcd_overlay_clut_end_all(void)
 {
   if (current_lcd_mode != LCD_MODE_LUT8)
     return;
+  overlay_clut_hold_swaps = 0;
   if (overlay_clut_depth == 0 && !overlay_clut_live)
     return;
   if (overlay_clut_live && overlay_collides_with_cart()) {

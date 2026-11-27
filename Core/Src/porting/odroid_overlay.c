@@ -1985,6 +1985,11 @@ bool odroid_overlay_progress_poll_cancel(void)
 
 static void draw_progress_bar_ex(const char *header, uint8_t progress, bool with_cancel_hint)
 {
+    /* A core can ask for this bar after loading a 256-colour CLUT, which
+     * covers the overlay slots: without the overlay colours the header, the
+     * box and the battery icon are painted with whatever the cart has there. */
+    lcd_overlay_clut_hold();
+
     /* Launcher chrome stays on screen under the modal bar during a long
      * flash-cache write; refresh clock/battery so they do not freeze. */
     gui_draw_status(gui_get_current_tab());
