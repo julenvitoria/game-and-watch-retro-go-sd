@@ -243,6 +243,9 @@ uint32_t lcd_get_pixel_position()
   return (uint32_t)(hltdc.Instance->CPSR);
 }
 
+/* lcd_overlay_clut_hold(): swaps left before the overlay CLUT is released. */
+static uint8_t overlay_clut_hold_swaps = 0;
+
 void lcd_swap(void)
 {
   /* Release a lcd_overlay_clut_hold() once its chrome is no longer the frame
@@ -507,7 +510,6 @@ static uint32_t overlay_clut_saved[LCD_OVERLAY_CLUT_MAX];
 static uint32_t cart_clut_under_overlay[LCD_OVERLAY_CLUT_MAX];
 static uint8_t  overlay_clut_live = 0;     /* 1 if overlay colours are in active_clut */
 static uint8_t  overlay_clut_depth = 0;    /* nested begin()/end() for pause dialogs */
-static uint8_t  overlay_clut_hold_swaps = 0; /* lcd_overlay_clut_hold(): swaps left before release */
 /* O(1) darken for lcd_darken_index / HUD (rebuilt on set_clut). */
 static uint8_t  clut_darken_map[LCD_CLUT_HW_MAX];
 static uint8_t  clut_darken_map_valid = 0;
